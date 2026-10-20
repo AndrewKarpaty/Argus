@@ -1,0 +1,188 @@
+# Argus service catalog.
+#
+# This file is the skeleton's source of topology truth. Every investigation
+# reasons over it, so keeping it accurate matters more than keeping it big.
+#
+#   tier:        critical | high | standard   - how much user-visible damage an outage causes
+#   kind:        service | database | queue | cache | external
+#   criticality: hard | soft                  - hard: the caller fails with the callee
+#                                               soft: the caller only degrades
+services:
+  - id: edge-gateway
+    name: Edge Gateway
+    kind: service
+    tier: critical
+    team: platform
+    description: TLS termination and routing for all public traffic.
+
+  - id: checkout
+    name: Checkout API
+    kind: service
+    tier: critical
+    team: commerce
+    repo: github.com/example/checkout
+    runbook: https://runbooks.example.com/checkout
+    description: Drives the purchase flow and orchestrates payment and stock reservation.
+
+  - id: orders
+    name: Orders Service
+    kind: service
+    tier: critical
+    team: commerce
+    description: Order lifecycle and history.
+
+  - id: payments
+    name: Payments Service
+    kind: service
+    tier: critical
+    team: payments
+    runbook: https://runbooks.example.com/payments
+    description: Authorises and captures payments through the acquiring provider.
+
+  - id: inventory
+    name: Inventory Service
+    kind: service
+    tier: high
+    team: supply
+    description: Stock levels and reservations.
+
+  - id: auth
+    name: Auth Service
+    kind: service
+    tier: critical
+    team: platform
+    description: Issues and validates session tokens.
+
+  - id: recommendations
+    name: Recommendations
+    kind: service
+    tier: standard
+    team: growth
+    description: Product suggestions on the checkout page. Best-effort.
+
+  - id: notifications
+    name: Notifications
+    kind: service
+    tier: standard
+    team: growth
+    description: Order confirmation emails and push notifications.
+
+  - id: postgres-main
+    name: Postgres (main)
+    kind: database
+    tier: critical
+    team: platform
+    description: Primary OLTP cluster shared by commerce services.
+
+  - id: redis-cache
+    name: Redis (cache)
+    kind: cache
+    tier: high
+    team: platform
+    description: Shared cache for sessions and hot reads.
+
+  - id: kafka
+    name: Kafka
+    kind: queue
+    tier: high
+    team: platform
+    description: Event backbone for order and payment events.
+
+  - id: stripe
+    name: Stripe
+    kind: external
+    tier: critical
+    team: payments
+    description: External card acquirer. Outside our control.
+
+dependencies:
+  - from: edge-gateway
+    to: checkout
+    kind: http
+    criticality: hard
+  - from: edge-gateway
+    to: orders
+    kind: http
+    criticality: hard
+  - from: edge-gateway
+    to: auth
+    kind: grpc
+    criticality: hard
+    description: Token validation on every request.
+
+  - from: checkout
+    to: payments
+    kind: grpc
+    criticality: hard
+  - from: checkout
+    to: inventory
+    kind: grpc
+    criticality: hard
+  - from: checkout
+    to: auth
+    kind: grpc
+    criticality: hard
+  - from: checkout
+    to: recommendations
+    kind: http
+    criticality: soft
+    description: Rendered when available, skipped on error.
+  - from: checkout
+    to: postgres-main
+    kind: sql
+    criticality: hard
+
+  - from: orders
+    to: postgres-main
+    kind: sql
+    criticality: hard
+  - from: orders
+    to: kafka
+    kind: queue
+    criticality: hard
+  - from: orders
+    to: notifications
+    kind: queue
+    criticality: soft
+
+  - from: payments
+    to: postgres-main
+    kind: sql
+    criticality: hard
+  - from: payments
+    to: kafka
+    kind: queue
+    criticality: hard
+  - from: payments
+    to: stripe
+    kind: external
+    criticality: hard
+
+  - from: inventory
+    to: postgres-main
+    kind: sql
+    criticality: hard
+  - from: inventory
+    to: redis-cache
+    kind: cache
+    criticality: soft
+
+  - from: auth
+    to: postgres-main
+    kind: sql
+    criticality: hard
+  - from: auth
+    to: redis-cache
+    kind: cache
+    criticality: hard
+    description: Session lookups are not served without the cache.
+
+  - from: recommendations
+    to: redis-cache
+    kind: cache
+    criticality: soft
+
+  - from: notifications
+    to: kafka
+    kind: queue
+    criticality: hard
