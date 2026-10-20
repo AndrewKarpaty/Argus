@@ -2,14 +2,32 @@ BINDIR  := bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X main.version=$(VERSION)
 
-.PHONY: all build run cli test test-race cover vet fmt tidy lint clean docker demo
+.PHONY: all build release run ui ui-dev ui-install ui-test ui-clean test test-race cover vet fmt tidy lint clean docker demo
 
 all: fmt vet test build
 
-build: ## Build both binaries into ./bin
+build: ## Build both binaries into ./bin (embeds whatever is in web/dist)
 	@mkdir -p $(BINDIR)
 	go build -ldflags "$(LDFLAGS)" -o $(BINDIR)/argusd ./cmd/argusd
 	go build -ldflags "$(LDFLAGS)" -o $(BINDIR)/argusctl ./cmd/argusctl
+
+release: ui build ## Build the console, then the binaries with it embedded
+
+ui: ## Build the web console into web/dist
+	cd web && npm ci && npm run build
+
+ui-install: ## Install the console's dependencies
+	cd web && npm ci
+
+ui-test: ## Typecheck the console and run the graph-layout checks
+	cd web && npm test
+
+ui-dev: ## Run the console with hot reload against a local argusd on :8080
+	cd web && npm run dev
+
+ui-clean:
+	rm -rf web/dist web/node_modules
+	@mkdir -p web/dist && touch web/dist/.gitkeep
 
 run: ## Run the API server
 	go run -ldflags "$(LDFLAGS)" ./cmd/argusd

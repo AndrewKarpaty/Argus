@@ -19,10 +19,14 @@ the whole thing runs end to end out of the box.
 # Investigate from the command line: no server, no credentials
 make demo
 
-# Or run the API
+# Or run the API with the web console
+make ui       # build the console into web/dist (needs Node 18+)
 make run      # http://localhost:8080
-curl localhost:8080/readyz
 ```
+
+`argusd` serves the API and the console from one binary and one port: the
+console is embedded at build time. Without `make ui` the binary still starts
+and serves the API, and says so in the log.
 
 Open an incident and investigate it in one call:
 
@@ -108,8 +112,36 @@ internal/investigator  Engine (lifecycle) + Heuristic (reasoner)
 internal/agent     the Claude reasoner: prompt, tools, loop
 internal/store     store interfaces + in-memory implementations
 internal/api       HTTP: routing, handlers, middleware
+web/               the console (React + TypeScript), embedded into argusd
 configs/           sample service catalog and environment file
 ```
+
+## The console
+
+Three screens, dark by default because this is a thing people stare at during
+an incident, with a light theme selected step by step rather than inverted:
+
+- **Incidents** — what is open, what is being investigated, and the leading
+  hypothesis per row with its confidence.
+- **Investigation** — the verdict, the ranked hypotheses with their evidence
+  and propagation paths, and beside them *How it got there*: every tool call
+  the run made, in order, with what each one returned. A conclusion you cannot
+  audit is not worth much at 3am, so the trail sits next to the answer rather
+  than under it. While a run is in flight the page polls and fills in live.
+- **Topology** — the dependency graph, laid out by longest path so faults
+  visibly travel against the arrows. It opens on the service the newest
+  incident blames and draws only what has a dependency path to it, naming
+  what it hid; *Whole catalog* is one click away. Under it, the correlation
+  table: pick the services that are misbehaving and see what they share
+  upstream, and why each candidate ranks where it does.
+
+Two deliberate omissions in `web/`: there is no router library (three routes
+and one parameter did not justify a dependency that needs patching, so
+`src/lib/router.tsx` does it in 60 lines of History API), and no test runner
+(every advisory-free vitest needs Node 20). What the console does have is
+`npm test`: a typecheck plus executable checks on the graph layout, which is
+the part where a wrong number means overlapping boxes or arrows through the
+middle of a card.
 
 ## API
 
@@ -126,6 +158,7 @@ configs/           sample service catalog and environment file
 | `GET` | `/api/v1/services/{id}/dependencies` | traversal: `direction=dependencies\|dependents`, `depth` |
 | `GET` | `/api/v1/services/{id}/blast-radius` | what breaks when this service fails |
 | `GET` | `/api/v1/graph` | the graph: `format=json\|mermaid\|text`, `service`, `radius`, `highlight` |
+| `GET` | `/api/v1/suspects` | rank what a set of symptomatic services share upstream: `service` (repeat), `depth`, `limit` |
 | `POST` | `/api/v1/catalog/refresh` | reload the catalog (on failure the previous one keeps serving) |
 | `POST` | `/api/v1/webhooks/alerts` | alert intake → incident → investigation |
 
@@ -157,15 +190,22 @@ every one has a working default. The ones that matter most: `ARGUS_ENGINE`
 ## Development
 
 ```bash
-make test        # run the tests
-make test-race   # run them under the race detector
+make test        # Go tests
+make test-race   # the same, under the race detector
+make ui-test     # typecheck the console + graph-layout checks
 make all         # fmt + vet + test + build
+make ui-dev      # console with hot reload, proxying the API to :8080
+make release     # console + binaries with it embedded
 make docker
 ```
 
-The tests cover the graph algorithms, the correlation ranking, the full incident →
+The Go tests cover the graph algorithms, the correlation ranking, the full incident →
 investigation path, and the agentic loop - the last one against a fake API server, so no
 request ever reaches the real API.
+
+Working on the console: run `make run` in one terminal and `make ui-dev` in another, then
+open the Vite server on :5173. It proxies `/api` and `/readyz` to argusd, so hot reload
+works against real data.
 
 ## What is deliberately missing
 
@@ -177,6 +217,8 @@ These are the next steps, not hidden gaps:
 - **Learning from history** - find similar past incidents and what resolved them.
 - **Quality measurement** - an eval set of real incidents with known causes. Without one,
   "the model got better" is a feeling rather than a fact.
+- **Component tests for the console** — the layout engine has executable checks, but the
+  React components have none; a runner needs Node 20 to come without advisories.
 - **Authentication and rate limiting** on the API, plus an audit trail of who ran what.
 - **Actions with consequences** (rollback, traffic shifting). For now the platform only
   suggests next steps, which is the right boundary to start from.

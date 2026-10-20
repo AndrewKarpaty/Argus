@@ -23,6 +23,7 @@ import (
 	"github.com/AndrewKarpaty/Argus/internal/store"
 	"github.com/AndrewKarpaty/Argus/internal/telemetry"
 	"github.com/AndrewKarpaty/Argus/internal/telemetry/demo"
+	"github.com/AndrewKarpaty/Argus/web"
 )
 
 // version is overridden at build time: -ldflags "-X main.version=$(git describe)".
@@ -85,6 +86,15 @@ func run() error {
 		return err
 	}
 
+	// The console is embedded at build time. Without it argusd still serves
+	// the API, which is all the CLI and any integration need.
+	ui, hasUI := web.Handler()
+	if hasUI {
+		log.Info("web console enabled", "path", "/")
+	} else {
+		log.Warn("web console not embedded, serving the API only; run `make ui` to build it")
+	}
+
 	srv, err := api.New(api.Deps{
 		Catalog:        provider,
 		Engine:         engine,
@@ -94,6 +104,7 @@ func run() error {
 		Log:            log,
 		RequestTimeout: cfg.RequestTimeout,
 		Version:        buildVersion(),
+		UI:             ui,
 	})
 	if err != nil {
 		return err

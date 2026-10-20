@@ -4,6 +4,12 @@
 /argusd
 /argusctl
 
+# Web console: dependencies and build output. The placeholder keeps the
+# go:embed directive in web/embed.go satisfiable in a fresh checkout.
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+
 # Test and coverage output
 *.test
 coverage.out

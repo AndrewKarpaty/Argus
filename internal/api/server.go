@@ -27,6 +27,9 @@ type Deps struct {
 	RequestTimeout time.Duration
 	// Version is reported by the health endpoints.
 	Version string
+	// UI serves the web console at the paths the API does not claim. Nil
+	// leaves the server API-only.
+	UI http.Handler
 }
 
 // Server holds the HTTP handlers.
@@ -72,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/services/{id}/dependencies", s.handleServiceDependencies)
 	mux.HandleFunc("GET /api/v1/services/{id}/blast-radius", s.handleBlastRadius)
 	mux.HandleFunc("GET /api/v1/graph", s.handleGraph)
+	mux.HandleFunc("GET /api/v1/suspects", s.handleSuspects)
 	mux.HandleFunc("POST /api/v1/catalog/refresh", s.handleCatalogRefresh)
 
 	// Incidents and investigations.
@@ -84,6 +88,13 @@ func (s *Server) Handler() http.Handler {
 
 	// Ingestion. One webhook shape per alerting system; this is the generic one.
 	mux.HandleFunc("POST /api/v1/webhooks/alerts", s.handleAlertWebhook)
+
+	// The console takes everything left over, so its client-side routes
+	// resolve on a hard refresh. API patterns above are more specific and so
+	// keep winning.
+	if s.deps.UI != nil {
+		mux.Handle("/", s.deps.UI)
+	}
 
 	var h http.Handler = mux
 	h = withTimeout(s.deps.RequestTimeout, h)

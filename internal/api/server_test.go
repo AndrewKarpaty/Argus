@@ -168,6 +168,79 @@ func TestAlertWebhookStartsInvestigation(t *testing.T) {
 	}
 }
 
+func TestSuspectsEndpoint(t *testing.T) {
+	h := newHarness(t)
+
+	res, body := h.do(t, http.MethodGet, "/api/v1/suspects?service=checkout&service=orders", "")
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, body = %v", res.StatusCode, body)
+	}
+	suspects, _ := body["suspects"].([]any)
+	if len(suspects) == 0 {
+		t.Fatal("no suspects returned")
+	}
+	top, _ := suspects[0].(map[string]any)
+	if top["service_id"] != "postgres-main" {
+		t.Errorf("top suspect = %v, want postgres-main", top["service_id"])
+	}
+	if cov, _ := top["coverage"].(float64); cov != 1 {
+		t.Errorf("coverage = %v, want 1", top["coverage"])
+	}
+
+	res, _ = h.do(t, http.MethodGet, "/api/v1/suspects", "")
+	if res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("no service given: status = %d, want 422", res.StatusCode)
+	}
+
+	res, body = h.do(t, http.MethodGet, "/api/v1/suspects?service=ghost", "")
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", res.StatusCode)
+	}
+	if unknown, _ := body["unknown_services"].([]any); len(unknown) != 1 {
+		t.Errorf("an unknown service should be reported back, got %v", body["unknown_services"])
+	}
+}
+
+// The console reads the leading hypothesis straight off the list, so the list
+// has to carry the newest investigation per row.
+func TestIncidentListCarriesLatestInvestigation(t *testing.T) {
+	h := newHarness(t)
+
+	res, _ := h.do(t, http.MethodPost, "/api/v1/incidents", `{
+		"title": "Checkout failing",
+		"affected_services": ["checkout", "orders"],
+		"investigate": true
+	}`)
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("status = %d", res.StatusCode)
+	}
+	h.engine.Wait()
+
+	res, body := h.do(t, http.MethodGet, "/api/v1/incidents", "")
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", res.StatusCode)
+	}
+	rows, _ := body["incidents"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("expected one incident, got %d", len(rows))
+	}
+	row, _ := rows[0].(map[string]any)
+	if row["title"] != "Checkout failing" {
+		t.Errorf("the incident fields should be inlined on the row, got %v", row)
+	}
+	iv, ok := row["latest_investigation"].(map[string]any)
+	if !ok {
+		t.Fatalf("latest_investigation missing from the row: %v", row)
+	}
+	if iv["status"] != string(domain.InvestigationCompleted) {
+		t.Errorf("investigation status = %v", iv["status"])
+	}
+	hypotheses, _ := iv["hypotheses"].([]any)
+	if len(hypotheses) == 0 {
+		t.Error("the attached investigation should carry its hypotheses")
+	}
+}
+
 func TestGraphEndpoints(t *testing.T) {
 	h := newHarness(t)
 

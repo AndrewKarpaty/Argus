@@ -1,12 +1,21 @@
-# Build
+# Console. Built first and separately, so a source edit in Go does not
+# reinstall npm packages.
+FROM node:22-alpine AS ui
+WORKDIR /ui
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+# Binaries, with the console embedded.
 FROM golang:1.26-alpine AS build
 WORKDIR /src
 
-# Dependencies first, so the module cache survives source edits.
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+COPY --from=ui /ui/dist ./web/dist
 ARG VERSION=dev
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/argusd ./cmd/argusd \
  && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/argusctl ./cmd/argusctl

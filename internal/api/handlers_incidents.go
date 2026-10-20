@@ -87,6 +87,14 @@ func (s *Server) handleCreateIncident(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, r, http.StatusCreated, body)
 }
 
+// incidentRow is an incident plus its newest investigation, so the console can
+// show the leading hypothesis per row without a request per incident. With a
+// SQL store this becomes one join; the in-memory store does a lookup per row.
+type incidentRow struct {
+	domain.Incident
+	LatestInvestigation *domain.Investigation `json:"latest_investigation,omitempty"`
+}
+
 func (s *Server) handleListIncidents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, err := intQuery(r, "limit", 50)
@@ -104,9 +112,24 @@ func (s *Server) handleListIncidents(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, r, err)
 		return
 	}
+
+	rows := make([]incidentRow, 0, len(incidents))
+	for _, inc := range incidents {
+		row := incidentRow{Incident: inc}
+		runs, err := s.deps.Investigations.ListByIncident(r.Context(), inc.ID)
+		if err != nil {
+			// The list is still useful without the investigation column.
+			loggerFrom(r).Warn("could not load investigations for incident",
+				"incident", inc.ID, "error", err)
+		} else if len(runs) > 0 {
+			row.LatestInvestigation = &runs[0]
+		}
+		rows = append(rows, row)
+	}
+
 	writeJSON(w, r, http.StatusOK, map[string]any{
-		"count":     len(incidents),
-		"incidents": incidents,
+		"count":     len(rows),
+		"incidents": rows,
 	})
 }
 

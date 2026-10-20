@@ -133,6 +133,49 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleSuspects ranks the shared upstream dependencies of a set of
+// symptomatic services - the correlation the investigation starts from.
+//
+//	GET /api/v1/suspects?service=checkout&service=orders&depth=4&limit=10
+func (s *Server) handleSuspects(w http.ResponseWriter, r *http.Request) {
+	ids := r.URL.Query()["service"]
+	if len(ids) == 0 {
+		writeError(w, r, http.StatusUnprocessableEntity,
+			"at least one 'service' query parameter is required", nil)
+		return
+	}
+	depth, err := intQuery(r, "depth", 4)
+	if err != nil {
+		writeError(w, r, http.StatusBadRequest, "depth must be a non-negative integer", err)
+		return
+	}
+	limit, err := intQuery(r, "limit", 10)
+	if err != nil {
+		writeError(w, r, http.StatusBadRequest, "limit must be a non-negative integer", err)
+		return
+	}
+
+	g := s.deps.Catalog.Graph()
+	suspects := g.Suspects(ids, graph.SuspectOptions{
+		MaxDepth:    depth,
+		Limit:       limit,
+		IncludeSoft: true,
+	})
+
+	body := map[string]any{
+		"affected": ids,
+		"count":    len(suspects),
+		"suspects": suspects,
+		"note": "coverage is the fraction of the given services that depend on the candidate; " +
+			"score also weighs hop distance, dependency criticality, tier and node kind. " +
+			"This is a plausibility ranking, not a verdict.",
+	}
+	if unknown := s.unknownServices(ids); len(unknown) > 0 {
+		body["unknown_services"] = unknown
+	}
+	writeJSON(w, r, http.StatusOK, body)
+}
+
 // handleCatalogRefresh reloads the catalog from its source.
 func (s *Server) handleCatalogRefresh(w http.ResponseWriter, r *http.Request) {
 	if err := s.deps.Catalog.Refresh(r.Context()); err != nil {
